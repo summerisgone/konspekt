@@ -47,6 +47,9 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           merge-multiple: true
-      - run: gh release create "$GITHUB_REF_NAME" Konspekt.zip Konspekt-windows.zip --repo "$GITHUB_REPOSITORY" --generate-notes
+      # Tags with a suffix (v0.5.0-beta.1) are test builds: pre-release, not "Latest".
+      - run: >-
+          gh release create "$GITHUB_REF_NAME" Konspekt.zip Konspekt-windows.zip --repo "$GITHUB_REPOSITORY" --generate-notes
+          $([[ "$GITHUB_REF_NAME" == *-* ]] && echo --prerelease)
         env:
           GH_TOKEN: ${{ github.token }}
