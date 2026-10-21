@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(AVFoundation)
 import AVFoundation
+#endif
 
 public enum AudioMixer {
     static let rate: Double = 16000
@@ -16,6 +18,7 @@ public enum AudioMixer {
         return mix
     }
 
+    #if canImport(AVFoundation)
     static func decode(_ url: URL) throws -> [Float] {
         let file = try AVAudioFile(forReading: url, commonFormat: .pcmFormatFloat32, interleaved: false)
         let inFmt = file.processingFormat
@@ -46,6 +49,12 @@ public enum AudioMixer {
         }
         return out
     }
+    #else
+    static func decode(_ url: URL) throws -> [Float] {
+        let (samples, sampleRate, channels) = try WavReader.read(url)
+        return Resampler.toMono(samples, channels: channels, from: sampleRate, to: Int(rate))
+    }
+    #endif
 
     public static func wav16k(_ samples: ArraySlice<Float>) -> Data {
         let dataLen = UInt32(samples.count * 2)

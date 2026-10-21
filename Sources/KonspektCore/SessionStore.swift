@@ -22,8 +22,13 @@ public struct SessionStatus: Codable, Equatable {
 public struct Session {
     public let dir: URL
     public var name: String { dir.lastPathComponent }
-    public var micURL: URL { dir.appendingPathComponent("mic.caf") }
-    public var callURL: URL { dir.appendingPathComponent("call.caf") }
+    #if os(macOS)
+    static let audioExtension = "caf"
+    #else
+    static let audioExtension = "wav"
+    #endif
+    public var micURL: URL { dir.appendingPathComponent("mic.\(Self.audioExtension)") }
+    public var callURL: URL { dir.appendingPathComponent("call.\(Self.audioExtension)") }
     public var transcriptURL: URL { dir.appendingPathComponent("transcript.md") }
     public var summaryURL: URL { dir.appendingPathComponent("summary.md") }
     public var chunksDir: URL { dir.appendingPathComponent("chunks") }

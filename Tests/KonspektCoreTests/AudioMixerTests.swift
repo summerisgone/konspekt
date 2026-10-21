@@ -1,6 +1,5 @@
 import Testing
 import Foundation
-import AVFoundation
 @testable import KonspektCore
 
 @Suite struct AudioMixerTests {
@@ -12,21 +11,13 @@ import AVFoundation
 
     func makeCAF(_ dir: URL, _ name: String, rate: Double, channels: Int, seconds: Double, value: Float) -> URL {
         let url = dir.appendingPathComponent(name)
-        let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: rate, channels: AVAudioChannelCount(channels), interleaved: false)!
-        let file = try! AVAudioFile(forWriting: url, settings: fmt.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-        let n = AVAudioFrameCount(rate * seconds)
-        if n > 0 {
-            let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: n)!
-            buf.frameLength = n
-            for c in 0..<channels { for i in 0..<Int(n) { buf.floatChannelData![c][i] = value } }
-            try! file.write(from: buf)
-        }
+        try! makeTrack(url, rate: rate, channels: channels, seconds: seconds, values: Array(repeating: value, count: channels))
         return url
     }
 
     @Test func test_stereo_48k() throws {
         let d = tmp()
-        let u = makeCAF(d, "a.caf", rate: 48000, channels: 2, seconds: 1, value: 0.25)
+        let u = makeCAF(d, "a.\(audioExt)", rate: 48000, channels: 2, seconds: 1, value: 0.25)
         let s = try AudioMixer.mixToMono16k([u])
         #expect(abs(s.count - 16000) <= 2)
         #expect(abs(s[8000] - 0.25) < 0.01)
@@ -34,13 +25,8 @@ import AVFoundation
 
     @Test func test_stereo_right_only_downmixed() throws {
         let d = tmp()
-        let url = d.appendingPathComponent("r.caf")
-        let fmt = AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 48000, channels: 2, interleaved: false)!
-        let file = try AVAudioFile(forWriting: url, settings: fmt.settings, commonFormat: .pcmFormatFloat32, interleaved: false)
-        let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 48000)!
-        buf.frameLength = 48000
-        for i in 0..<48000 { buf.floatChannelData![0][i] = 0; buf.floatChannelData![1][i] = 0.5 }
-        try file.write(from: buf)
+        let url = d.appendingPathComponent("r.\(audioExt)")
+        try makeTrack(url, rate: 48000, channels: 2, seconds: 1, values: [0, 0.5])
         let s = try AudioMixer.mixToMono16k([url])
         #expect(abs(s.count - 16000) <= 2)
         #expect(abs(s[8000] - 0.25) < 0.02)
@@ -48,8 +34,8 @@ import AVFoundation
 
     @Test func test_mix_two_lengths() throws {
         let d = tmp()
-        let a = makeCAF(d, "a.caf", rate: 16000, channels: 1, seconds: 2, value: 0.2)
-        let b = makeCAF(d, "b.caf", rate: 16000, channels: 1, seconds: 1, value: 0.1)
+        let a = makeCAF(d, "a.\(audioExt)", rate: 16000, channels: 1, seconds: 2, value: 0.2)
+        let b = makeCAF(d, "b.\(audioExt)", rate: 16000, channels: 1, seconds: 1, value: 0.1)
         let s = try AudioMixer.mixToMono16k([a, b])
         #expect(abs(s.count - 32000) <= 2)
         #expect(abs(s[4000] - 0.3) < 0.01)
@@ -58,27 +44,27 @@ import AVFoundation
 
     @Test func test_missing_file_skipped() throws {
         let d = tmp()
-        let v = makeCAF(d, "v.caf", rate: 16000, channels: 1, seconds: 1, value: 0.3)
-        let s = try AudioMixer.mixToMono16k([d.appendingPathComponent("nope.caf"), v])
+        let v = makeCAF(d, "v.\(audioExt)", rate: 16000, channels: 1, seconds: 1, value: 0.3)
+        let s = try AudioMixer.mixToMono16k([d.appendingPathComponent("nope.\(audioExt)"), v])
         #expect(s.count == 16000)
         #expect(abs(s[100] - 0.3) < 0.01)
     }
 
     @Test func test_all_missing_empty() throws {
         let d = tmp()
-        #expect(try AudioMixer.mixToMono16k([d.appendingPathComponent("x.caf")]).isEmpty)
+        #expect(try AudioMixer.mixToMono16k([d.appendingPathComponent("x.\(audioExt)")]).isEmpty)
     }
 
     @Test func test_zero_frames_empty() throws {
         let d = tmp()
-        let u = makeCAF(d, "z.caf", rate: 48000, channels: 1, seconds: 0, value: 0)
+        let u = makeCAF(d, "z.\(audioExt)", rate: 48000, channels: 1, seconds: 0, value: 0)
         #expect(try AudioMixer.mixToMono16k([u]).isEmpty)
     }
 
     @Test func test_clamp() throws {
         let d = tmp()
-        let a = makeCAF(d, "a.caf", rate: 16000, channels: 1, seconds: 1, value: 0.8)
-        let b = makeCAF(d, "b.caf", rate: 16000, channels: 1, seconds: 1, value: 0.8)
+        let a = makeCAF(d, "a.\(audioExt)", rate: 16000, channels: 1, seconds: 1, value: 0.8)
+        let b = makeCAF(d, "b.\(audioExt)", rate: 16000, channels: 1, seconds: 1, value: 0.8)
         let s = try AudioMixer.mixToMono16k([a, b])
         #expect(s[1000] == 1.0)
         let wav = AudioMixer.wav16k(s[1000..<1001])
@@ -88,7 +74,7 @@ import AVFoundation
 
     @Test func test_44_khz_input() throws {
         let d = tmp()
-        let u = makeCAF(d, "a.caf", rate: 44100, channels: 1, seconds: 1, value: 0.5)
+        let u = makeCAF(d, "a.\(audioExt)", rate: 44100, channels: 1, seconds: 1, value: 0.5)
         let s = try AudioMixer.mixToMono16k([u])
         #expect(abs(s.count - 16000) <= 2)
     }

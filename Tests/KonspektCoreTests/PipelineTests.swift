@@ -1,6 +1,5 @@
 import Testing
 import Foundation
-import AVFoundation
 @testable import KonspektCore
 
 private final class Fake: Transcriber, Summarizer, @unchecked Sendable {
@@ -25,12 +24,7 @@ private func makeSession(status: SessionState = .recorded) throws -> Session {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent("pl-" + UUID().uuidString)
     let store = SessionStore(root: root)
     let s = try store.create(start: Date(timeIntervalSince1970: 1_800_000_000))
-    let fmt = AVAudioFormat(standardFormatWithSampleRate: 16000, channels: 1)!
-    let file = try AVAudioFile(forWriting: s.micURL, settings: fmt.settings)
-    let buf = AVAudioPCMBuffer(pcmFormat: fmt, frameCapacity: 48000)!
-    buf.frameLength = 48000
-    for i in 0..<48000 { buf.floatChannelData![0][i] = 0.3 * sin(Float(i) * 0.1) }
-    try file.write(from: buf)
+    try makeTrack(s.micURL, rate: 16000, channels: 1, seconds: 3, values: [0]) { 0.3 * sin(Float($0) * 0.1) }
     var st = try s.readStatus()
     st.state = status
     st.end = st.start.addingTimeInterval(180)

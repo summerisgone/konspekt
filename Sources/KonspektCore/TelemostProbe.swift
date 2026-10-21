@@ -1,8 +1,21 @@
+#if os(macOS)
 import CoreAudio
-import Foundation
 import Darwin
+#endif
+import Foundation
 
 public enum TelemostProbe {
+    /// macOS: anything inside Yandex.Telemost.app.
+    /// Windows: C:\Program Files\Yandex\YandexTelemost\YandexTelemost.exe and its QtWebEngineProcess.exe.
+    public static func isTelemostPath(_ p: String) -> Bool {
+        p.contains("Yandex.Telemost.app") || p.lowercased().contains("\\yandextelemost\\")
+    }
+}
+
+#if os(macOS)
+extension TelemostProbe {
+    public typealias Source = AudioObjectID
+
     public static func sample() -> (AudioState, [AudioObjectID]) {
         var objs: [AudioObjectID] = []
         var input = false, output = false
@@ -14,10 +27,6 @@ public enum TelemostProbe {
             if (get(obj, kAudioProcessPropertyIsRunningOutput) as UInt32?) ?? 0 != 0 { output = true }
         }
         return (AudioState(running: !objs.isEmpty, input: input, output: output), objs)
-    }
-
-    public static func isTelemostPath(_ p: String) -> Bool {
-        p.contains("Yandex.Telemost.app")
     }
 
     private static func processObjects() -> [AudioObjectID] {
@@ -43,3 +52,4 @@ public enum TelemostProbe {
         return String(cString: buf)
     }
 }
+#endif

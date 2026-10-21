@@ -17,7 +17,10 @@ import Foundation
         #expect(c.apiKey == "k")
         #expect(c.asrModel == "asr")
         #expect(c.summaryModel == "qwen-3.8-27b")
+        #expect(c.outputDir.path == Config.documentsDir.appendingPathComponent("Konspekt").path)
+        #if os(macOS)
         #expect(c.outputDir.path == home.appendingPathComponent("Documents/Konspekt").path)
+        #endif
         #expect(c.transcriptionPromptFile == nil)
         #expect(c.summaryPromptFile == nil)
     }

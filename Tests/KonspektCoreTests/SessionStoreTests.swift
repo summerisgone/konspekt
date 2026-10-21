@@ -21,8 +21,13 @@ import Foundation
         let st = try s.readStatus()
         #expect(st.state == .recording)
         #expect(st.attempts == 0)
+        #if os(macOS)
         #expect(s.micURL.lastPathComponent == "mic.caf")
         #expect(s.callURL.lastPathComponent == "call.caf")
+        #else
+        #expect(s.micURL.lastPathComponent == "mic.wav")
+        #expect(s.callURL.lastPathComponent == "call.wav")
+        #endif
         #expect(s.chunksDir.lastPathComponent == "chunks")
     }
     @Test func test_create_same_second_unique() throws {

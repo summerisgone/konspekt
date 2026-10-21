@@ -49,8 +49,25 @@ public struct Config: Equatable {
     }
 
     public static func outputDir(_ env: [String: String]) -> URL {
-        env["KONSPEKT_DIR"].flatMap(path)
-            ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents/Konspekt")
+        env["KONSPEKT_DIR"].flatMap(path) ?? documentsDir.appendingPathComponent("Konspekt")
+    }
+
+    /// The user's Documents folder; on Windows it may be redirected (OneDrive, another drive).
+    public static var documentsDir: URL {
+        #if os(Windows)
+        if let d = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask).first { return d }
+        #endif
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Documents")
+    }
+
+    /// Default .env location: ~/.config/konspekt/.env, on Windows %APPDATA%\Konspekt\.env.
+    public static var defaultEnvFile: URL {
+        #if os(Windows)
+        if let appData = ProcessInfo.processInfo.environment["APPDATA"], !appData.isEmpty {
+            return URL(fileURLWithPath: appData).appendingPathComponent("Konspekt").appendingPathComponent(".env")
+        }
+        #endif
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".config/konspekt/.env")
     }
 
     /// Expands a leading "~"; nil for an empty value.
@@ -59,6 +76,9 @@ public struct Config: Equatable {
         if d.isEmpty { return nil }
         if d == "~" { return home }
         if d.hasPrefix("~/") { return home.appendingPathComponent(String(d.dropFirst(2))) }
+        #if os(Windows)
+        if d.hasPrefix("~\\") { return home.appendingPathComponent(String(d.dropFirst(2))) }
+        #endif
         return URL(fileURLWithPath: d)
     }
 

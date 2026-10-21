@@ -1,3 +1,4 @@
+#if os(macOS)
 import AVFoundation
 import CoreAudio
 import Foundation
@@ -143,3 +144,4 @@ public final class Recorder {
         lock.lock(); micGate = open; lock.unlock()
     }
 }
+#endif

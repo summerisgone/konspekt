@@ -1,3 +1,4 @@
+#if os(macOS)
 import AppKit
 import SwiftUI
 import KonspektCore
@@ -370,3 +371,4 @@ struct KonspektApp: App {
         WindowGroup("Konspekt") { MainView(model: model) }
     }
 }
+#endif
