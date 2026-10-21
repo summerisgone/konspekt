@@ -14,7 +14,7 @@ actor Processor {
     let pipeline: Pipeline
     init(config: Config) {
         let api = APIClient.live(config: config)
-        pipeline = Pipeline(transcriber: api, summarizer: api)
+        pipeline = Pipeline(transcriber: api, summarizer: api, diarizer: Diarization.local(), voicesFile: config.voicesFile)
     }
 
     func run(_ s: Session) async -> SessionStatus? {

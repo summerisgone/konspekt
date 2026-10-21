@@ -1,8 +1,15 @@
-// swift-tools-version: 6.0
+// swift-tools-version: 6.1
 import PackageDescription
 
 var coreDependencies: [Target.Dependency] = []
 var targets: [Target] = []
+var dependencies: [Package.Dependency] = []
+
+#if os(macOS)
+// Local speaker diarization (Core ML). No traits: skips the NeMo text-normalization binary.
+dependencies.append(.package(url: "https://github.com/FluidInference/FluidAudio.git", exact: "0.17.7", traits: []))
+coreDependencies.append(.product(name: "FluidAudio", package: "FluidAudio"))
+#endif
 
 #if os(Windows)
 coreDependencies.append("CWinAudio")
@@ -24,6 +31,7 @@ targets += [
 let package = Package(
     name: "Konspekt",
     platforms: [.macOS(.v14)],
+    dependencies: dependencies,
     targets: targets,
     swiftLanguageModes: [.v5]
 )
