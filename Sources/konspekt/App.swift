@@ -1,5 +1,6 @@
 #if os(macOS)
 import AppKit
+import AVFoundation
 import SwiftUI
 import KonspektCore
 
@@ -52,9 +53,15 @@ func ensureAgentPlist() -> String? {
     }
 }
 
+extension Session: Identifiable {
+    public var id: String { dir.path }
+}
+
 struct CallRow: Identifiable {
     let session: Session
     let status: SessionStatus
+    /// Names of speakers with recognized speech, in the order (and colors) of the participants window.
+    var participants: [String] = []
     var id: String { session.name }
 }
 
@@ -93,7 +100,10 @@ final class AppModel: ObservableObject {
         let fm = FileManager.default
         folderReadable = !fm.fileExists(atPath: outputDir) || (try? fm.contentsOfDirectory(atPath: outputDir)) != nil
         calls = SessionStore(root: URL(fileURLWithPath: outputDir)).all().suffix(5).reversed().compactMap { s in
-            (try? s.readStatus()).map { CallRow(session: s, status: $0) }
+            guard let st = try? s.readStatus() else { return nil }
+            let map = try? s.readSpeakers()
+            let seconds = map?.seconds() ?? [:]
+            return CallRow(session: s, status: st, participants: map?.speakers.filter { seconds[$0.id] != nil }.map(\.name) ?? [])
         }
     }
 
@@ -137,6 +147,26 @@ final class AppModel: ObservableObject {
         }
         if panel.runModal() == .OK, let url = panel.url {
             self[keyPath: path] = url.path
+        }
+    }
+
+    /// Processes a call in a separate process, like `konspekt process`: after a rename or a reset.
+    func reprocess(_ s: Session) {
+        guard let exe = Bundle.main.executablePath else { return }
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: exe)
+        p.arguments = ["process", s.dir.path]
+        p.terminationHandler = { _ in Task { @MainActor in self.refresh() } }
+        do { try p.run() } catch { message = "Не удалось пересобрать конспект: \(error.localizedDescription)" }
+        refresh()
+    }
+
+    func reprocessFromScratch(_ s: Session) {
+        do {
+            try s.resetForReprocessing()
+            reprocess(s)
+        } catch {
+            message = "Не удалось сбросить звонок: \(error.localizedDescription)"
         }
     }
 
@@ -283,8 +313,165 @@ struct PromptEditor: View {
     }
 }
 
+let speakerColors: [Color] = [.blue, .orange, .green, .purple, .pink, .teal, .brown, .indigo]
+
+func initials(_ name: String) -> String {
+    String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
+}
+
+/// Overlapping colored circles with participants' initials; a name repeated by two voices shows once.
+struct ParticipantStack: View {
+    let names: [String]
+    let limit = 5
+    var body: some View {
+        let unique = names.enumerated().filter { e in !names[..<e.offset].contains(e.element) }
+        HStack(spacing: -5) {
+            ForEach(unique.prefix(limit), id: \.element) { i, name in
+                Text(initials(name))
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(speakerColors[i % speakerColors.count]))
+                    .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                    .help(name)
+            }
+            if unique.count > limit {
+                Text("+\(unique.count - limit)")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.secondary.opacity(0.2)))
+            }
+        }
+    }
+}
+
+/// Participants of one call: share of speech, when each spoke, a voice sample and an editable name.
+struct SpeakersView: View {
+    let session: Session
+    let voicesFile: URL
+    let onRenamed: () -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var map: SpeakerMap?
+    @State private var names: [String: String] = [:]
+    @State private var known: [String] = []
+    @State private var error = ""
+    @State private var player: AVAudioPlayer?
+    @State private var playing: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Участники \(session.name)").font(.headline)
+            if let map {
+                let seconds = map.seconds()
+                let total = max(1, seconds.values.reduce(0, +))
+                let length = max(1, map.turns.map(\.end).max() ?? 1)
+                ForEach(Array(map.speakers.filter { seconds[$0.id] != nil }.enumerated()), id: \.element.id) { i, sp in
+                    let color = speakerColors[i % speakerColors.count]
+                    VStack(alignment: .leading, spacing: 6) {
+                        HStack {
+                            Text(initials(names[sp.id] ?? sp.name))
+                                .font(.caption.bold()).foregroundStyle(color)
+                                .frame(width: 30, height: 30)
+                                .overlay(Circle().stroke(color, lineWidth: 2))
+                            TextField("Имя", text: binding(sp.id, sp.name))
+                            Menu("Известные") {
+                                ForEach(known, id: \.self) { n in Button(n) { names[sp.id] = n } }
+                            }
+                            .disabled(known.isEmpty).fixedSize()
+                            Text("\(Int(((seconds[sp.id] ?? 0) / total * 100).rounded()))%")
+                                .monospacedDigit().frame(width: 40, alignment: .trailing)
+                            Button { play(sp, map) } label: {
+                                Image(systemName: playing == sp.id ? "stop.fill" : "headphones")
+                            }
+                            .help("Послушать голос")
+                        }
+                        Timeline(turns: map.turns.filter { $0.speaker == sp.id }, length: length, color: color)
+                            .frame(height: 6).padding(.leading, 38)
+                    }
+                }
+                Text(hint).font(.caption).foregroundStyle(.secondary)
+            }
+            if !error.isEmpty { Text(error).foregroundStyle(.red) }
+            HStack {
+                Spacer()
+                Button("Отмена") { dismiss() }.keyboardShortcut(.cancelAction)
+                Button("Сохранить") { save() }.keyboardShortcut("s").disabled(map == nil)
+            }
+        }
+        .padding()
+        .frame(minWidth: 560)
+        .onAppear(perform: load)
+        .onDisappear { player?.stop() }
+    }
+
+    let hint = "Имена запоминаются по голосу и подставляются в следующие звонки. После сохранения конспект пересоберется."
+
+    func binding(_ id: String, _ name: String) -> Binding<String> {
+        Binding(get: { names[id] ?? name }, set: { names[id] = $0 })
+    }
+
+    func load() {
+        do {
+            let m = try session.readSpeakers()
+            map = m
+            names = Dictionary(uniqueKeysWithValues: m.speakers.map { ($0.id, $0.name) })
+            known = try VoiceDB.load(voicesFile).voices.map(\.name).sorted()
+        } catch {
+            self.error = "Не удалось прочитать участников: \(error.localizedDescription)"
+        }
+    }
+
+    /// Plays up to 8 seconds of the speaker's longest turn from its own track.
+    func play(_ sp: CallSpeaker, _ map: SpeakerMap) {
+        player?.stop()
+        if playing == sp.id { playing = nil; return }
+        guard let turn = map.turns.filter({ $0.speaker == sp.id }).max(by: { $0.end - $0.start < $1.end - $1.start }) else { return }
+        do {
+            let p = try AVAudioPlayer(contentsOf: sp.track == .mic ? session.micURL : session.callURL)
+            p.currentTime = turn.start
+            p.play()
+            player = p
+            playing = sp.id
+            DispatchQueue.main.asyncAfter(deadline: .now() + min(8, turn.end - turn.start)) {
+                if player === p { p.stop(); playing = nil }
+            }
+        } catch {
+            self.error = "Не удалось воспроизвести: \(error.localizedDescription)"
+        }
+    }
+
+    func save() {
+        do {
+            if try session.rename(names, voicesFile: voicesFile) { onRenamed() }
+            dismiss()
+        } catch {
+            self.error = "Ошибка сохранения: \(error.localizedDescription)"
+        }
+    }
+}
+
+/// When a speaker talked, as marks on a bar spanning the whole call.
+struct Timeline: View {
+    let turns: [Turn]
+    let length: Double
+    let color: Color
+    var body: some View {
+        GeometryReader { geo in
+            ZStack(alignment: .leading) {
+                Capsule().fill(Color.secondary.opacity(0.15))
+                ForEach(turns, id: \.start) { t in
+                    Rectangle().fill(color)
+                        .frame(width: max(1, geo.size.width * (t.end - t.start) / length))
+                        .offset(x: geo.size.width * t.start / length)
+                }
+            }
+        }
+    }
+}
+
 struct MainView: View {
     @ObservedObject var model: AppModel
+    @State private var speakersOf: Session?
+    @State private var reprocessing: Session?
     let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     static let stateNames: [SessionState: String] = [
@@ -311,9 +498,23 @@ struct MainView: View {
                     HStack {
                         Text(c.session.name).monospacedDigit()
                         Spacer()
+                        if !c.participants.isEmpty {
+                            ParticipantStack(names: c.participants)
+                        }
                         Text(c.status.lastError == nil ? Self.stateNames[c.status.state] ?? "" : "ошибка")
                             .foregroundStyle(c.status.lastError == nil ? Color.secondary : Color.red)
                             .help(c.status.lastError ?? "")
+                        // Renaming while the pipeline still writes the transcript or summary would race with it.
+                        if c.status.state == .done || (c.status.state == .transcribed && c.status.lastError != nil),
+                           !c.participants.isEmpty {
+                            Button("Участники") { speakersOf = c.session }
+                        }
+                        // A call still recording or being processed must not be reset under the daemon.
+                        if c.status.state == .done || c.status.lastError != nil {
+                            Button { reprocessing = c.session } label: { Image(systemName: "arrow.clockwise") }
+                                .help("Обработать заново")
+                                .accessibilityLabel("Обработать заново")
+                        }
                         Button("Открыть") { NSWorkspace.shared.open(c.session.dir) }
                     }
                 }
@@ -349,9 +550,24 @@ struct MainView: View {
             if !model.message.isEmpty {
                 Text(model.message).foregroundStyle(.secondary).textSelection(.enabled)
             }
+            Text("Версия \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .frame(minWidth: 560, minHeight: 720)
+        .confirmationDialog("Обработать звонок заново?", isPresented: Binding(
+            get: { reprocessing != nil }, set: { if !$0 { reprocessing = nil } }
+        ), presenting: reprocessing) { s in
+            Button("Обработать заново") { model.reprocessFromScratch(s) }
+            Button("Отмена", role: .cancel) {}
+        } message: { _ in
+            Text("Разметка и расшифровка будут сделаны заново, конспект пересоберется. Имена подставятся из базы голосов.")
+        }
+        .sheet(item: $speakersOf) { s in
+            SpeakersView(session: s, voicesFile: model.configDir.appendingPathComponent("voices.json")) {
+                model.reprocess(s)
+            }
+        }
         .onReceive(timer) { _ in model.refresh() }
     }
 }

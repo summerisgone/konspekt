@@ -30,6 +30,25 @@ import Foundation
         #endif
         #expect(s.chunksDir.lastPathComponent == "chunks")
     }
+    @Test func test_reset_for_reprocessing() throws {
+        let s = try SessionStore(root: tmp()).create(start: date("2026-10-21 10:05:03"))
+        var st = try s.readStatus()
+        st.state = .done
+        st.attempts = 2
+        st.lastError = "boom"
+        try s.write(st)
+        try FileManager.default.createDirectory(at: s.chunksDir, withIntermediateDirectories: true)
+        try "x".write(to: s.chunksDir.appendingPathComponent("mic-00000000.txt"), atomically: true, encoding: .utf8)
+        try s.write(SpeakerMap(speakers: [], turns: []))
+        try "t".write(to: s.transcriptURL, atomically: true, encoding: .utf8)
+
+        try s.resetForReprocessing()
+        let fm = FileManager.default
+        #expect(!fm.fileExists(atPath: s.chunksDir.path) && !fm.fileExists(atPath: s.speakersURL.path))
+        #expect(fm.fileExists(atPath: s.transcriptURL.path))
+        let after = try s.readStatus()
+        #expect(after.state == .recorded && after.attempts == 0 && after.lastError == nil)
+    }
     @Test func test_create_same_second_unique() throws {
         let store = SessionStore(root: tmp())
         let t = date("2026-10-21 10:05:03")

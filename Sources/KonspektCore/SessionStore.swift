@@ -47,6 +47,19 @@ public struct Session {
         e.outputFormatting = [.prettyPrinted, .sortedKeys]
         try e.encode(s).write(to: statusURL, options: .atomic)
     }
+    /// Drops the speaker map and cached transcription so the next run processes the call from scratch.
+    /// Names come back from the voice database; transcript and summary are overwritten by that run.
+    public func resetForReprocessing() throws {
+        let fm = FileManager.default
+        for url in [speakersURL, chunksDir] where fm.fileExists(atPath: url.path) {
+            try fm.removeItem(at: url)
+        }
+        var st = try readStatus()
+        st.state = .recorded
+        st.attempts = 0
+        st.lastError = nil
+        try write(st)
+    }
 }
 
 public struct SessionStore {

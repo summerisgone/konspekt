@@ -9,8 +9,10 @@ public struct Config: Equatable {
     /// Files with prompts, read on every request so edits apply without a restart.
     public var transcriptionPromptFile: URL?
     public var summaryPromptFile: URL?
+    /// Voice database for naming speakers, voices.json next to the .env file.
+    public var voicesFile: URL?
     public init(baseURL: URL, apiKey: String, asrModel: String, summaryModel: String, outputDir: URL,
-                transcriptionPromptFile: URL? = nil, summaryPromptFile: URL? = nil) {
+                transcriptionPromptFile: URL? = nil, summaryPromptFile: URL? = nil, voicesFile: URL? = nil) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.asrModel = asrModel
@@ -18,6 +20,7 @@ public struct Config: Equatable {
         self.outputDir = outputDir
         self.transcriptionPromptFile = transcriptionPromptFile
         self.summaryPromptFile = summaryPromptFile
+        self.voicesFile = voicesFile
     }
 
     public static func load(envFile: URL) throws -> Config {
@@ -36,7 +39,8 @@ public struct Config: Equatable {
         let sm = env["SUMMARY_MODEL_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "qwen-3.8-27b"
         return Config(baseURL: url, apiKey: key, asrModel: asr, summaryModel: sm, outputDir: outputDir(env),
                       transcriptionPromptFile: env["TRANSCRIPTION_PROMPT_FILE"].flatMap(path),
-                      summaryPromptFile: env["SUMMARY_PROMPT_FILE"].flatMap(path))
+                      summaryPromptFile: env["SUMMARY_PROMPT_FILE"].flatMap(path),
+                      voicesFile: envFile.deletingLastPathComponent().appendingPathComponent("voices.json"))
     }
 
     public static func parse(_ text: String) -> [String: String] {
