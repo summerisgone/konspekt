@@ -84,9 +84,10 @@ public struct SpeakerMap: Codable, Equatable {
         speakers.first { $0.id == id }?.name ?? id
     }
 
-    /// Seconds of speech per speaker id.
+    /// Seconds of speech per speaker id. Turns the ASR found no words in (residual echo, noise) don't count.
     public func seconds() -> [String: Double] {
-        turns.reduce(into: [:]) { $0[$1.speaker, default: 0] += $1.end - $1.start }
+        turns.filter { $0.text.map { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty } ?? true }
+            .reduce(into: [:]) { $0[$1.speaker, default: 0] += $1.end - $1.start }
     }
 
     /// Markdown transcript: participants with their share of speech, then one paragraph per turn.

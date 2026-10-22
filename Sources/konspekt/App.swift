@@ -321,7 +321,7 @@ struct SpeakersView: View {
                 let seconds = map.seconds()
                 let total = max(1, seconds.values.reduce(0, +))
                 let length = max(1, map.turns.map(\.end).max() ?? 1)
-                ForEach(Array(map.speakers.enumerated()), id: \.element.id) { i, sp in
+                ForEach(Array(map.speakers.filter { seconds[$0.id] != nil }.enumerated()), id: \.element.id) { i, sp in
                     let color = speakerColors[i % speakerColors.count]
                     VStack(alignment: .leading, spacing: 6) {
                         HStack {

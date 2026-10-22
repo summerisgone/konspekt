@@ -65,11 +65,13 @@ private func tmp(_ name: String) -> URL {
             CallSpeaker(id: "mic:S1", track: .mic, name: "Я", known: true, embedding: []),
             CallSpeaker(id: "call:S1", track: .call, name: "Илья", known: true, embedding: []),
             CallSpeaker(id: "call:S2", track: .call, name: "Илья", known: true, embedding: []),
+            CallSpeaker(id: "mic:S2", track: .mic, name: "Спикер 1", known: false, embedding: []),
         ], turns: [
             Turn(speaker: "mic:S1", start: 0, end: 10, text: "привет"),
             Turn(speaker: "call:S1", start: 10, end: 30, text: "раз"),
             Turn(speaker: "call:S2", start: 31, end: 40, text: "два"),
             Turn(speaker: "mic:S1", start: 3700, end: 3700, text: " "),
+            Turn(speaker: "mic:S2", start: 41, end: 50, text: ""),
         ])
         #expect(map.render() == """
         Участники: Илья (74%), Я (26%)

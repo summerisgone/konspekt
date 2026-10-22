@@ -81,6 +81,9 @@ public struct Pipeline {
         for (track, url) in [(Track.mic, s.micURL), (.call, s.callURL)] where FileManager.default.fileExists(atPath: url.path) {
             audio[track] = try AudioMixer.decode(url)
         }
+        if let mic = audio[.mic], let call = audio[.call] {
+            audio[.mic] = EchoSuppressor.clean(mic: mic, call: call)
+        }
         var map: SpeakerMap
         if let saved = try? s.readSpeakers() {
             map = saved
