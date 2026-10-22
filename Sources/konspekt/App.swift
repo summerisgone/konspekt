@@ -145,7 +145,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    /// Rebuilds the summary after speakers were renamed, in a separate process like `konspekt process`.
+    /// Processes a call in a separate process, like `konspekt process`: after a rename or a reset.
     func reprocess(_ s: Session) {
         guard let exe = Bundle.main.executablePath else { return }
         let p = Process()
@@ -154,6 +154,15 @@ final class AppModel: ObservableObject {
         p.terminationHandler = { _ in Task { @MainActor in self.refresh() } }
         do { try p.run() } catch { message = "Не удалось пересобрать конспект: \(error.localizedDescription)" }
         refresh()
+    }
+
+    func reprocessFromScratch(_ s: Session) {
+        do {
+            try s.resetForReprocessing()
+            reprocess(s)
+        } catch {
+            message = "Не удалось сбросить звонок: \(error.localizedDescription)"
+        }
     }
 
     func loadModels() async {
@@ -432,6 +441,7 @@ struct Timeline: View {
 struct MainView: View {
     @ObservedObject var model: AppModel
     @State private var speakersOf: Session?
+    @State private var reprocessing: Session?
     let timer = Timer.publish(every: 2, on: .main, in: .common).autoconnect()
 
     static let stateNames: [SessionState: String] = [
@@ -465,6 +475,10 @@ struct MainView: View {
                         if c.status.state == .done || (c.status.state == .transcribed && c.status.lastError != nil),
                            FileManager.default.fileExists(atPath: c.session.speakersURL.path) {
                             Button("Участники") { speakersOf = c.session }
+                        }
+                        // A call still recording or being processed must not be reset under the daemon.
+                        if c.status.state == .done || c.status.lastError != nil {
+                            Button("Обработать заново") { reprocessing = c.session }
                         }
                         Button("Открыть") { NSWorkspace.shared.open(c.session.dir) }
                     }
@@ -504,6 +518,14 @@ struct MainView: View {
         }
         .formStyle(.grouped)
         .frame(minWidth: 560, minHeight: 720)
+        .confirmationDialog("Обработать звонок заново?", isPresented: Binding(
+            get: { reprocessing != nil }, set: { if !$0 { reprocessing = nil } }
+        ), presenting: reprocessing) { s in
+            Button("Обработать заново") { model.reprocessFromScratch(s) }
+            Button("Отмена", role: .cancel) {}
+        } message: { _ in
+            Text("Разметка и расшифровка будут сделаны заново, конспект пересоберется. Имена подставятся из базы голосов.")
+        }
         .sheet(item: $speakersOf) { s in
             SpeakersView(session: s, voicesFile: model.configDir.appendingPathComponent("voices.json")) {
                 model.reprocess(s)
