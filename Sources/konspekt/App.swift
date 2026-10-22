@@ -60,6 +60,8 @@ extension Session: Identifiable {
 struct CallRow: Identifiable {
     let session: Session
     let status: SessionStatus
+    /// Names of speakers with recognized speech, in the order (and colors) of the participants window.
+    var participants: [String] = []
     var id: String { session.name }
 }
 
@@ -98,7 +100,10 @@ final class AppModel: ObservableObject {
         let fm = FileManager.default
         folderReadable = !fm.fileExists(atPath: outputDir) || (try? fm.contentsOfDirectory(atPath: outputDir)) != nil
         calls = SessionStore(root: URL(fileURLWithPath: outputDir)).all().suffix(5).reversed().compactMap { s in
-            (try? s.readStatus()).map { CallRow(session: s, status: $0) }
+            guard let st = try? s.readStatus() else { return nil }
+            let map = try? s.readSpeakers()
+            let seconds = map?.seconds() ?? [:]
+            return CallRow(session: s, status: st, participants: map?.speakers.filter { seconds[$0.id] != nil }.map(\.name) ?? [])
         }
     }
 
@@ -310,6 +315,35 @@ struct PromptEditor: View {
 
 let speakerColors: [Color] = [.blue, .orange, .green, .purple, .pink, .teal, .brown, .indigo]
 
+func initials(_ name: String) -> String {
+    String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
+}
+
+/// Overlapping colored circles with participants' initials; a name repeated by two voices shows once.
+struct ParticipantStack: View {
+    let names: [String]
+    let limit = 5
+    var body: some View {
+        let unique = names.enumerated().filter { e in !names[..<e.offset].contains(e.element) }
+        HStack(spacing: -5) {
+            ForEach(unique.prefix(limit), id: \.element) { i, name in
+                Text(initials(name))
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(.white)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(speakerColors[i % speakerColors.count]))
+                    .overlay(Circle().stroke(Color(nsColor: .windowBackgroundColor), lineWidth: 1.5))
+                    .help(name)
+            }
+            if unique.count > limit {
+                Text("+\(unique.count - limit)")
+                    .font(.system(size: 9, weight: .bold)).foregroundStyle(.secondary)
+                    .frame(width: 24, height: 24)
+                    .background(Circle().fill(Color.secondary.opacity(0.2)))
+            }
+        }
+    }
+}
+
 /// Participants of one call: share of speech, when each spoke, a voice sample and an editable name.
 struct SpeakersView: View {
     let session: Session
@@ -373,10 +407,6 @@ struct SpeakersView: View {
 
     func binding(_ id: String, _ name: String) -> Binding<String> {
         Binding(get: { names[id] ?? name }, set: { names[id] = $0 })
-    }
-
-    func initials(_ name: String) -> String {
-        String(name.split(separator: " ").prefix(2).compactMap(\.first)).uppercased()
     }
 
     func load() {
@@ -468,17 +498,22 @@ struct MainView: View {
                     HStack {
                         Text(c.session.name).monospacedDigit()
                         Spacer()
+                        if !c.participants.isEmpty {
+                            ParticipantStack(names: c.participants)
+                        }
                         Text(c.status.lastError == nil ? Self.stateNames[c.status.state] ?? "" : "ошибка")
                             .foregroundStyle(c.status.lastError == nil ? Color.secondary : Color.red)
                             .help(c.status.lastError ?? "")
                         // Renaming while the pipeline still writes the transcript or summary would race with it.
                         if c.status.state == .done || (c.status.state == .transcribed && c.status.lastError != nil),
-                           FileManager.default.fileExists(atPath: c.session.speakersURL.path) {
+                           !c.participants.isEmpty {
                             Button("Участники") { speakersOf = c.session }
                         }
                         // A call still recording or being processed must not be reset under the daemon.
                         if c.status.state == .done || c.status.lastError != nil {
-                            Button("Обработать заново") { reprocessing = c.session }
+                            Button { reprocessing = c.session } label: { Image(systemName: "arrow.clockwise") }
+                                .help("Обработать заново")
+                                .accessibilityLabel("Обработать заново")
                         }
                         Button("Открыть") { NSWorkspace.shared.open(c.session.dir) }
                     }
@@ -515,6 +550,8 @@ struct MainView: View {
             if !model.message.isEmpty {
                 Text(model.message).foregroundStyle(.secondary).textSelection(.enabled)
             }
+            Text("Версия \(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "dev")")
+                .font(.caption).foregroundStyle(.secondary)
         }
         .formStyle(.grouped)
         .frame(minWidth: 560, minHeight: 720)
