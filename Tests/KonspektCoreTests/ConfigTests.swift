@@ -43,6 +43,26 @@ import Foundation
             try load("OPENAI_BASE_URL=https://h\nOPENAI_MODEL_NAME=asr")
         }
     }
+    @Test func test_handy_engine_needs_no_asr_model_or_key() throws {
+        let c = try load("OPENAI_BASE_URL=http://localhost:11434/v1\nASR_ENGINE=handy\nHANDY_PATH=~/bin/handy\nHANDY_MODEL=m")
+        #expect(c.handy == Config.Handy(executable: home.appendingPathComponent("bin/handy"), model: "m"))
+        #expect(c.apiKey == "")
+        #expect(c.asrModel == "")
+        #if os(macOS)
+        let d = try load("OPENAI_BASE_URL=https://h\nASR_ENGINE=handy\nHANDY_MODEL=")
+        #expect(d.handy?.executable.path.hasSuffix("Applications/Handy.app/Contents/MacOS/handy") == true)
+        #expect(d.handy?.model == nil)
+        #endif
+    }
+    @Test func test_default_engine_is_api() throws {
+        let c = try load("OPENAI_BASE_URL=https://h\nOPENAI_API_KEY=k\nOPENAI_MODEL_NAME=a\nASR_ENGINE=openai\nHANDY_MODEL=m")
+        #expect(c.handy == nil)
+    }
+    @Test func test_unknown_engine_throws() {
+        #expect(throws: ConfigError.invalid("ASR_ENGINE")) {
+            try load("OPENAI_BASE_URL=https://h\nOPENAI_API_KEY=k\nOPENAI_MODEL_NAME=a\nASR_ENGINE=whisper")
+        }
+    }
     @Test func test_tilde_expanded() throws {
         let c = try load("OPENAI_BASE_URL=https://h\nOPENAI_API_KEY=k\nOPENAI_MODEL_NAME=a\nKONSPEKT_DIR=~/x")
         #expect(c.outputDir.path == home.appendingPathComponent("x").path)

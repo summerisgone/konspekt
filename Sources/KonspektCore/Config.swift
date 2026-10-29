@@ -14,9 +14,11 @@ public struct Config: Equatable {
     /// Audio of processed calls kept on disk, newest first; older recordings are deleted.
     public var keepAudioGB: Double
     public static let defaultKeepAudioGB: Double = 10
+    /// Local ASR through the Handy app instead of the API (ASR_ENGINE=handy).
+    public var handy: Handy?
     public init(baseURL: URL, apiKey: String, asrModel: String, summaryModel: String, outputDir: URL,
                 transcriptionPromptFile: URL? = nil, summaryPromptFile: URL? = nil, voicesFile: URL? = nil,
-                keepAudioGB: Double = defaultKeepAudioGB) {
+                keepAudioGB: Double = defaultKeepAudioGB, handy: Handy? = nil) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.asrModel = asrModel
@@ -26,6 +28,28 @@ public struct Config: Equatable {
         self.summaryPromptFile = summaryPromptFile
         self.voicesFile = voicesFile
         self.keepAudioGB = keepAudioGB
+        self.handy = handy
+    }
+
+    public struct Handy: Equatable {
+        public var executable: URL
+        /// Handy model id; nil means the model selected in Handy.
+        public var model: String?
+        public init(executable: URL, model: String? = nil) {
+            self.executable = executable
+            self.model = model
+        }
+
+        /// Handy.app in /Applications or ~/Applications; no default outside macOS.
+        public static var defaultExecutable: URL? {
+            #if os(macOS)
+            let suffix = "Applications/Handy.app/Contents/MacOS/handy"
+            let user = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(suffix)
+            return FileManager.default.fileExists(atPath: user.path) ? user : URL(fileURLWithPath: "/" + suffix)
+            #else
+            return nil
+            #endif
+        }
     }
 
     public static func load(envFile: URL) throws -> Config {
@@ -38,15 +62,26 @@ public struct Config: Equatable {
             return v
         }
         let base = try need("OPENAI_BASE_URL")
-        let key = try need("OPENAI_API_KEY")
-        let asr = try need("OPENAI_MODEL_NAME")
+        var handy: Handy?
+        switch env["ASR_ENGINE"] ?? "" {
+        case "", "openai":
+            break
+        case "handy":
+            guard let exe = env["HANDY_PATH"].flatMap(path) ?? Handy.defaultExecutable else { throw ConfigError.missing("HANDY_PATH") }
+            handy = Handy(executable: exe, model: env["HANDY_MODEL"].flatMap { $0.isEmpty ? nil : $0 })
+        default:
+            throw ConfigError.invalid("ASR_ENGINE")
+        }
+        // With local ASR the API serves only the summary, possibly a local server without a key.
+        let key = handy == nil ? try need("OPENAI_API_KEY") : env["OPENAI_API_KEY"] ?? ""
+        let asr = handy == nil ? try need("OPENAI_MODEL_NAME") : env["OPENAI_MODEL_NAME"] ?? ""
         guard let url = URL(string: base) else { throw ConfigError.missing("OPENAI_BASE_URL") }
         let sm = env["SUMMARY_MODEL_NAME"].flatMap { $0.isEmpty ? nil : $0 } ?? "qwen-3.8-27b"
         return Config(baseURL: url, apiKey: key, asrModel: asr, summaryModel: sm, outputDir: outputDir(env),
                       transcriptionPromptFile: env["TRANSCRIPTION_PROMPT_FILE"].flatMap(path),
                       summaryPromptFile: env["SUMMARY_PROMPT_FILE"].flatMap(path),
                       voicesFile: envFile.deletingLastPathComponent().appendingPathComponent("voices.json"),
-                      keepAudioGB: keepAudioGB(env))
+                      keepAudioGB: keepAudioGB(env), handy: handy)
     }
 
     public static func parse(_ text: String) -> [String: String] {
@@ -125,5 +160,5 @@ public struct Config: Equatable {
 }
 
 public enum ConfigError: Error, Equatable {
-    case missing(String), unreadable(String)
+    case missing(String), unreadable(String), invalid(String)
 }

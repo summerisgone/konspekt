@@ -14,7 +14,8 @@ actor Processor {
     let pipeline: Pipeline
     init(config: Config) {
         let api = APIClient.live(config: config)
-        pipeline = Pipeline(transcriber: api, summarizer: api, diarizer: Diarization.local(), voicesFile: config.voicesFile)
+        let asr: Transcriber = config.handy.map { HandyTranscriber(executable: $0.executable, model: $0.model) } ?? api
+        pipeline = Pipeline(transcriber: asr, summarizer: api, diarizer: Diarization.local(), voicesFile: config.voicesFile)
     }
 
     func run(_ s: Session) async -> SessionStatus? {

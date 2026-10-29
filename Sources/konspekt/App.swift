@@ -81,6 +81,10 @@ final class AppModel: ObservableObject {
     @Published var summaryPrompt = ""
     @Published var keepAudioGB = Config.defaultKeepAudioGB
     @Published var models: [String] = []
+    @Published var asrEngine = "openai"
+    @Published var handyModel = ""
+    @Published var handyModels: [String] = []
+    let handyPath: URL?
     @Published var message = ""
 
     init(configURL: URL) {
@@ -94,6 +98,9 @@ final class AppModel: ObservableObject {
         transcriptionPrompt = env["TRANSCRIPTION_PROMPT_FILE"].flatMap(Config.path)?.path ?? ""
         summaryPrompt = env["SUMMARY_PROMPT_FILE"].flatMap(Config.path)?.path ?? ""
         keepAudioGB = Config.keepAudioGB(env)
+        asrEngine = env["ASR_ENGINE"] == "handy" ? "handy" : "openai"
+        handyModel = env["HANDY_MODEL"] ?? ""
+        handyPath = env["HANDY_PATH"].flatMap(Config.path) ?? Config.Handy.defaultExecutable
         refresh()
     }
 
@@ -173,17 +180,31 @@ final class AppModel: ObservableObject {
     }
 
     func loadModels() async {
-        guard let url = URL(string: baseURL) else { message = "Неверный адрес API"; return }
+        if asrEngine == "handy" { await loadHandyModels() } else { message = "" }
+        guard let url = URL(string: baseURL) else { message += "Неверный адрес API"; return }
         var r = URLRequest(url: url.appendingPathComponent("models"))
-        r.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if !apiKey.isEmpty { r.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
         do {
             let (data, _) = try await URLSession.shared.data(for: r)
             let j = try JSONSerialization.jsonObject(with: data) as? [String: Any]
             let ids = (j?["data"] as? [[String: Any]])?.compactMap { $0["id"] as? String } ?? []
             models = ids.sorted()
-            message = ids.isEmpty ? "Список моделей пуст" : "Моделей: \(ids.count)"
+            message += ids.isEmpty ? "Список моделей пуст" : "Моделей: \(ids.count)"
         } catch {
-            message = "Не удалось получить модели: \(error.localizedDescription)"
+            message += "Не удалось получить модели: \(error.localizedDescription)"
+        }
+    }
+
+    /// Sets `message` to the Handy part of the result, the API part is appended after it.
+    func loadHandyModels() async {
+        guard let handyPath else { message = "Не задан HANDY_PATH. "; return }
+        do {
+            handyModels = try await HandyTranscriber.models(executable: handyPath)
+            message = handyModels.isEmpty ? "В Handy нет скачанных моделей. " : "Моделей Handy: \(handyModels.count). "
+        } catch HandyError.notInstalled(let path) {
+            message = "Handy не найден: \(path). "
+        } catch {
+            message = "Не удалось получить модели Handy: \(error). "
         }
     }
 
@@ -198,6 +219,8 @@ final class AppModel: ObservableObject {
             "TRANSCRIPTION_PROMPT_FILE": transcriptionPrompt,
             "SUMMARY_PROMPT_FILE": summaryPrompt,
             "KEEP_AUDIO_GB": String(Int(keepAudioGB)),
+            "ASR_ENGINE": asrEngine,
+            "HANDY_MODEL": handyModel,
         ])
         do {
             let fm = FileManager.default
@@ -542,11 +565,23 @@ struct MainView: View {
             Section("Инференс") {
                 TextField("Адрес API", text: $model.baseURL)
                 SecureField("Ключ API", text: $model.apiKey)
-                ModelField(title: "Модель ASR", value: $model.asrModel, models: model.models)
+                Picker("Распознавание речи", selection: $model.asrEngine) {
+                    Text("API").tag("openai")
+                    Text("Handy (локально)").tag("handy")
+                }
+                if model.asrEngine == "handy" {
+                    ModelField(title: "Модель Handy", value: $model.handyModel, models: model.handyModels,
+                               placeholder: "выбранная в Handy")
+                } else {
+                    ModelField(title: "Модель ASR", value: $model.asrModel, models: model.models)
+                }
                 ModelField(title: "Модель LLM", value: $model.llmModel, models: model.models, placeholder: "qwen-3.8-27b")
-                PromptField(title: "Промпт транскрибации", path: $model.transcriptionPrompt,
-                            newFile: model.configDir.appendingPathComponent("transcription-prompt.txt")) {
-                    model.choosePrompt(\.transcriptionPrompt)
+                // Handy's CLI takes no prompt.
+                if model.asrEngine != "handy" {
+                    PromptField(title: "Промпт транскрибации", path: $model.transcriptionPrompt,
+                                newFile: model.configDir.appendingPathComponent("transcription-prompt.txt")) {
+                        model.choosePrompt(\.transcriptionPrompt)
+                    }
                 }
                 PromptField(title: "Промпт саммари", path: $model.summaryPrompt,
                             newFile: model.configDir.appendingPathComponent("summary-prompt.md"),

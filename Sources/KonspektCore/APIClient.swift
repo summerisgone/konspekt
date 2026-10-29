@@ -5,6 +5,13 @@ import FoundationNetworking
 
 public protocol Transcriber {
     func transcribe(wav: Data) async throws -> String
+    /// Requests worth keeping in flight at once.
+    var maxConcurrent: Int { get }
+}
+
+extension Transcriber {
+    // The ASR server batches requests well; keep a few in flight.
+    public var maxConcurrent: Int { 4 }
 }
 
 public protocol Summarizer {
@@ -92,7 +99,8 @@ public struct APIClient: Transcriber, Summarizer {
     private func request(_ path: String) -> URLRequest {
         var r = URLRequest(url: config.baseURL.appendingPathComponent(path))
         r.httpMethod = "POST"
-        r.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization")
+        // Local LLM servers run without a key.
+        if !config.apiKey.isEmpty { r.setValue("Bearer \(config.apiKey)", forHTTPHeaderField: "Authorization") }
         return r
     }
 
