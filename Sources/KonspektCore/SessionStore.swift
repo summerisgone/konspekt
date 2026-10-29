@@ -36,6 +36,14 @@ public struct Session {
     public init(dir: URL) {
         self.dir = dir
     }
+    var audioURLs: [URL] { [micURL, callURL] }
+    public var hasAudio: Bool { audioURLs.contains { FileManager.default.fileExists(atPath: $0.path) } }
+    var audioBytes: Int64 {
+        audioURLs.reduce(0) { sum, url in
+            let size = (try? FileManager.default.attributesOfItem(atPath: url.path))?[.size] as? NSNumber
+            return sum + (size?.int64Value ?? 0)
+        }
+    }
     public func readStatus() throws -> SessionStatus {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .iso8601
@@ -97,5 +105,21 @@ public struct SessionStore {
             guard let s = try? $0.readStatus() else { return false }
             return s.state == .recorded || s.state == .transcribed
         }
+    }
+    /// Deletes audio of processed calls beyond `keepBytes`, oldest first; transcripts and summaries stay.
+    @discardableResult
+    public func cleanupAudio(keepBytes: Int64) -> [Session] {
+        var kept: Int64 = 0
+        var removed: [Session] = []
+        for s in all().reversed() where (try? s.readStatus())?.state == .done {
+            let size = s.audioBytes
+            if size == 0 { continue }
+            // Once the limit is reached, every older call loses its audio.
+            kept += size
+            if kept <= keepBytes { continue }
+            for url in s.audioURLs { try? FileManager.default.removeItem(at: url) }
+            removed.append(s)
+        }
+        return removed
     }
 }

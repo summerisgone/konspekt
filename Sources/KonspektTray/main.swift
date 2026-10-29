@@ -183,6 +183,7 @@ final class Tray {
             OPENAI_MODEL_NAME=
             # SUMMARY_MODEL_NAME=qwen-3.8-27b
             # KONSPEKT_DIR=
+            # KEEP_AUDIO_GB=10
             # TRANSCRIPTION_PROMPT_FILE=
             # SUMMARY_PROMPT_FILE=
 

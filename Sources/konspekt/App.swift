@@ -79,6 +79,7 @@ final class AppModel: ObservableObject {
     @Published var outputDir = ""
     @Published var transcriptionPrompt = ""
     @Published var summaryPrompt = ""
+    @Published var keepAudioGB = Config.defaultKeepAudioGB
     @Published var models: [String] = []
     @Published var message = ""
 
@@ -92,6 +93,7 @@ final class AppModel: ObservableObject {
         outputDir = Config.outputDir(env).path
         transcriptionPrompt = env["TRANSCRIPTION_PROMPT_FILE"].flatMap(Config.path)?.path ?? ""
         summaryPrompt = env["SUMMARY_PROMPT_FILE"].flatMap(Config.path)?.path ?? ""
+        keepAudioGB = Config.keepAudioGB(env)
         refresh()
     }
 
@@ -195,6 +197,7 @@ final class AppModel: ObservableObject {
             "KONSPEKT_DIR": outputDir,
             "TRANSCRIPTION_PROMPT_FILE": transcriptionPrompt,
             "SUMMARY_PROMPT_FILE": summaryPrompt,
+            "KEEP_AUDIO_GB": String(Int(keepAudioGB)),
         ])
         do {
             let fm = FileManager.default
@@ -382,7 +385,8 @@ struct SpeakersView: View {
                             Button { play(sp, map) } label: {
                                 Image(systemName: playing == sp.id ? "stop.fill" : "headphones")
                             }
-                            .help("Послушать голос")
+                            .help(session.hasAudio ? "Послушать голос" : "Запись удалена")
+                            .disabled(!session.hasAudio)
                         }
                         Timeline(turns: map.turns.filter { $0.speaker == sp.id }, length: length, color: color)
                             .frame(height: 6).padding(.leading, 38)
@@ -510,7 +514,7 @@ struct MainView: View {
                             Button("Участники") { speakersOf = c.session }
                         }
                         // A call still recording or being processed must not be reset under the daemon.
-                        if c.status.state == .done || c.status.lastError != nil {
+                        if c.status.state == .done || c.status.lastError != nil, c.session.hasAudio {
                             Button { reprocessing = c.session } label: { Image(systemName: "arrow.clockwise") }
                                 .help("Обработать заново")
                                 .accessibilityLabel("Обработать заново")
@@ -526,6 +530,14 @@ struct MainView: View {
                     Button("Изменить...") { model.chooseFolder() }
                     Button("Открыть") { NSWorkspace.shared.open(URL(fileURLWithPath: model.outputDir)) }
                 }
+                LabeledContent("Хранить записи обработанных звонков") {
+                    HStack {
+                        Slider(value: $model.keepAudioGB, in: 1...100, step: 1)
+                        Text("\(Int(model.keepAudioGB)) ГБ").monospacedDigit().frame(width: 52, alignment: .trailing)
+                    }
+                }
+                Text("Аудио старых звонков сверх лимита удаляется, расшифровка и конспект остаются. Применяется после \"Сохранить\".")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section("Инференс") {
                 TextField("Адрес API", text: $model.baseURL)

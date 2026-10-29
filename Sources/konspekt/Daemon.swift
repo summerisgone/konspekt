@@ -52,6 +52,7 @@ actor Processor {
 final class Daemon {
     let store: SessionStore
     let processor: Processor
+    let keepAudioBytes: Int64
     var detector = CallDetector()
     let recorder = Recorder()
     var current: (Session, SessionStatus)?
@@ -60,11 +61,16 @@ final class Daemon {
     init(config: Config) {
         store = SessionStore(root: config.outputDir)
         processor = Processor(config: config)
+        keepAudioBytes = Int64(config.keepAudioGB * 1_000_000_000)
     }
 
     func enqueuePending() {
-        let prev = work, store = store, processor = processor
-        work = Task { await prev.value; await processor.runPending(store) }
+        let prev = work, store = store, processor = processor, keep = keepAudioBytes
+        work = Task {
+            await prev.value
+            await processor.runPending(store)
+            for s in store.cleanupAudio(keepBytes: keep) { log("\(s.name): audio removed") }
+        }
     }
 
     func run() {
