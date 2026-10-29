@@ -70,6 +70,14 @@ func makeClient(_ t: FakeTransport) -> APIClient {
         #expect(msgs[1]["content"] == "Привет, мир")
     }
 
+    @Test func test_no_auth_header_without_key() async throws {
+        let t = FakeTransport(#"{"choices":[{"message":{"content":"ok"}}]}"#)
+        let cfg = Config(baseURL: URL(string: "http://localhost/v1")!, apiKey: "", asrModel: "",
+                         summaryModel: "sum", outputDir: URL(fileURLWithPath: "/tmp/x"))
+        _ = try await APIClient(config: cfg, transport: t).summarize(transcript: "a")
+        #expect(t.requests[0].value(forHTTPHeaderField: "Authorization") == nil)
+    }
+
     @Test func test_missing_text_field() async {
         let t = FakeTransport("{}")
         await #expect(throws: APIError.badResponse) { try await makeClient(t).transcribe(wav: Data()) }

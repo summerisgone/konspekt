@@ -121,10 +121,9 @@ public struct Pipeline {
             try out.write(to: file, atomically: true, encoding: .utf8)
             return out
         }
-        // The ASR server batches requests well; keep a few in flight.
         try await withThrowingTaskGroup(of: (Int, String).self) { g in
             for i in map.turns.indices {
-                if i >= 4, let (j, t) = try await g.next() { map.turns[j].text = t }
+                if i >= transcriber.maxConcurrent, let (j, t) = try await g.next() { map.turns[j].text = t }
                 g.addTask { (i, try await text(i)) }
             }
             for try await (j, t) in g { map.turns[j].text = t }
