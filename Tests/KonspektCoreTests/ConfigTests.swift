@@ -32,6 +32,12 @@ import Foundation
         let empty = try load("OPENAI_BASE_URL=https://h\nOPENAI_API_KEY=k\nOPENAI_MODEL_NAME=a\nSUMMARY_PROMPT_FILE=")
         #expect(empty.summaryPromptFile == nil)
     }
+    @Test func test_keep_audio_gb() throws {
+        let base = "OPENAI_BASE_URL=https://h\nOPENAI_API_KEY=k\nOPENAI_MODEL_NAME=a\n"
+        #expect(try load(base).keepAudioGB == 10)
+        #expect(try load(base + "KEEP_AUDIO_GB=25").keepAudioGB == 25)
+        #expect(try load(base + "KEEP_AUDIO_GB=x").keepAudioGB == 10)
+    }
     @Test func test_missing_key_throws() {
         #expect(throws: ConfigError.missing("OPENAI_API_KEY")) {
             try load("OPENAI_BASE_URL=https://h\nOPENAI_MODEL_NAME=asr")

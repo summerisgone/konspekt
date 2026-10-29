@@ -49,6 +49,31 @@ import Foundation
         let after = try s.readStatus()
         #expect(after.state == .recorded && after.attempts == 0 && after.lastError == nil)
     }
+    @Test func test_cleanup_audio_keeps_newest_done() throws {
+        let store = SessionStore(root: tmp())
+        func call(_ t: String, _ state: SessionState) throws -> Session {
+            let s = try store.create(start: date(t))
+            var st = try s.readStatus()
+            st.state = state
+            try s.write(st)
+            try Data(count: 100).write(to: s.micURL)
+            try Data(count: 50).write(to: s.callURL)
+            try "t".write(to: s.transcriptURL, atomically: true, encoding: .utf8)
+            return s
+        }
+        let oldest = try call("2026-10-21 09:00:00", .done)
+        let old = try call("2026-10-21 10:00:00", .done)
+        let pending = try call("2026-10-21 11:00:00", .recorded)
+        let newest = try call("2026-10-21 12:00:00", .done)
+
+        let removed = store.cleanupAudio(keepBytes: 320)
+        #expect(removed.map(\.name) == [oldest.name])
+        #expect(!oldest.hasAudio && old.hasAudio && pending.hasAudio && newest.hasAudio)
+        #expect(FileManager.default.fileExists(atPath: oldest.transcriptURL.path))
+
+        #expect(store.cleanupAudio(keepBytes: 0).map(\.name) == [newest.name, old.name])
+        #expect(pending.hasAudio)
+    }
     @Test func test_create_same_second_unique() throws {
         let store = SessionStore(root: tmp())
         let t = date("2026-10-21 10:05:03")

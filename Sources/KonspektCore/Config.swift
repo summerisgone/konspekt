@@ -11,8 +11,12 @@ public struct Config: Equatable {
     public var summaryPromptFile: URL?
     /// Voice database for naming speakers, voices.json next to the .env file.
     public var voicesFile: URL?
+    /// Audio of processed calls kept on disk, newest first; older recordings are deleted.
+    public var keepAudioGB: Double
+    public static let defaultKeepAudioGB: Double = 10
     public init(baseURL: URL, apiKey: String, asrModel: String, summaryModel: String, outputDir: URL,
-                transcriptionPromptFile: URL? = nil, summaryPromptFile: URL? = nil, voicesFile: URL? = nil) {
+                transcriptionPromptFile: URL? = nil, summaryPromptFile: URL? = nil, voicesFile: URL? = nil,
+                keepAudioGB: Double = defaultKeepAudioGB) {
         self.baseURL = baseURL
         self.apiKey = apiKey
         self.asrModel = asrModel
@@ -21,6 +25,7 @@ public struct Config: Equatable {
         self.transcriptionPromptFile = transcriptionPromptFile
         self.summaryPromptFile = summaryPromptFile
         self.voicesFile = voicesFile
+        self.keepAudioGB = keepAudioGB
     }
 
     public static func load(envFile: URL) throws -> Config {
@@ -40,7 +45,8 @@ public struct Config: Equatable {
         return Config(baseURL: url, apiKey: key, asrModel: asr, summaryModel: sm, outputDir: outputDir(env),
                       transcriptionPromptFile: env["TRANSCRIPTION_PROMPT_FILE"].flatMap(path),
                       summaryPromptFile: env["SUMMARY_PROMPT_FILE"].flatMap(path),
-                      voicesFile: envFile.deletingLastPathComponent().appendingPathComponent("voices.json"))
+                      voicesFile: envFile.deletingLastPathComponent().appendingPathComponent("voices.json"),
+                      keepAudioGB: keepAudioGB(env))
     }
 
     public static func parse(_ text: String) -> [String: String] {
@@ -54,6 +60,10 @@ public struct Config: Equatable {
 
     public static func outputDir(_ env: [String: String]) -> URL {
         env["KONSPEKT_DIR"].flatMap(path) ?? documentsDir.appendingPathComponent("Konspekt")
+    }
+
+    public static func keepAudioGB(_ env: [String: String]) -> Double {
+        env["KEEP_AUDIO_GB"].flatMap(Double.init).map { max(0, $0) } ?? defaultKeepAudioGB
     }
 
     /// The user's Documents folder; on Windows it may be redirected (OneDrive, another drive).
